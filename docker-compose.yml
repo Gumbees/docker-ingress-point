@@ -18,8 +18,11 @@ services:
     environment:
       - TZ=${TZ}
       # Cloudflare API credentials for DNS challenge
-      - CF_API_EMAIL=${CF_API_EMAIL}
-      - CF_API_KEY=${CF_API_KEY}
+      # Method 1: API Token (recommended - more secure)
+      - CF_DNS_API_TOKEN=${CF_DNS_API_TOKEN:-}
+      # Method 2: Global API Key (fallback if API Token not provided)
+      - CF_API_EMAIL=${CF_API_EMAIL:-}
+      - CF_API_KEY=${CF_API_KEY:-}
     volumes:
       - "/var/run/docker.sock:/var/run/docker.sock:ro"
       - "acme-certificates:/acme"
@@ -31,6 +34,10 @@ services:
       - --entrypoints.web.address=:80
       - --entrypoints.websecure.address=:443
       - --entrypoints.dashboard.address=:8080
+      # Global HTTP to HTTPS redirect
+      - --entrypoints.web.http.redirections.entrypoint.to=websecure
+      - --entrypoints.web.http.redirections.entrypoint.scheme=https
+      - --entrypoints.web.http.redirections.entrypoint.permanent=true
       - --log.level=${TRAEFIK_LOG_LEVEL:-INFO}
       - --accesslog=${TRAEFIK_ACCESS_LOG:-false}
       # ACME (Let's Encrypt) configuration
@@ -42,8 +49,7 @@ services:
     networks:
       containers-ingress:
         ipv4_address: ${TRAEFIK_IP}
-      media_center_apps:
-      immich-app-network:
+      proxy:
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "traefik", "healthcheck", "--ping"]
@@ -58,6 +64,33 @@ services:
       - "traefik.http.routers.traefik-dashboard.tls=${TRAEFIK_DASHBOARD_TLS:-false}"
       - "traefik.http.routers.traefik-dashboard.service=api@internal"
 
+  netbird:
+    container_name: "${CONTAINER_NAME_PREFIX}-netbird"
+    image: "netbird/netbird:latest"
+    environment:
+      - TZ=${TZ}
+      - NB_SETUP_KEY=${NETBIRD_SETUP_KEY:-}
+      - NB_HOSTNAME=${NETBIRD_HOSTNAME:-}
+      - NB_LOG_LEVEL=${NETBIRD_LOG_LEVEL:-info}
+    volumes:
+      - "netbird-data:/etc/netbird"
+    networks:
+      containers_bastion:
+    cap_add:
+      - NET_ADMIN
+      - SYS_ADMIN
+    devices:
+      - "/dev/net/tun:/dev/net/tun"
+    privileged: true
+    restart: unless-stopped
+
+    healthcheck:
+      test: ["CMD", "netbird", "status"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
 networks:
   # Traefik's ipvlan network for direct VLAN access
   containers-ingress:
@@ -71,9 +104,9 @@ networks:
     name: containers-ingress
   
   # App networks are external and must be created beforehand
-  media_center_apps:
+  proxy:
     external: true
-  immich-app-network:
+  containers_bastion:
     external: true
 
 volumes:
@@ -85,3 +118,8 @@ volumes:
       type: ${ACME_VOLUME_TYPE:-}
       o: ${ACME_VOLUME_OPTIONS:-}
       device: ${CONFIG_BASE}/acme
+  
+  # Netbird configuration storage
+  netbird-data:
+    name: "${CONTAINER_NAME_PREFIX}-netbird-data"
+    driver: local

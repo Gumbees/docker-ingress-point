@@ -6,8 +6,11 @@ This docker-compose setup provides a Traefik reverse proxy that can be dynamical
 
 - **Traefik Reverse Proxy**: Latest version with dashboard on configurable ports
 - **HTTP/HTTPS Access**: Ports 80 and 443 available on static IP for external access
+- **Automatic HTTPS Redirect**: All HTTP traffic automatically redirected to HTTPS for security
+- **SSL/TLS Certificates**: Automatic Let's Encrypt certificates via Cloudflare DNS challenge
 - **Network Isolation**: Dedicated network for Traefik with connections to app networks for service discovery
 - **Multi-Network Discovery**: Connect to multiple app networks dynamically without config changes
+- **Netbird VPN**: Zero-configuration VPN client for secure remote access
 - **Environment-based Configuration**: Full environment variable support via `.env` file
 - **Health Checks**: Built-in health monitoring for services
 - **Production Ready**: Proper restart policies, logging, and security configurations
@@ -27,6 +30,15 @@ This docker-compose setup provides a Traefik reverse proxy that can be dynamical
 - **Features**: Docker provider, health checks, configurable logging
 - **Container Name**: `${CONTAINER_NAME_PREFIX}-traefik`
 
+### Netbird
+- **Network Mode**: Connected to `containers_bastion` external network
+- **VPN Type**: WireGuard-based mesh VPN with zero-configuration setup
+- **Security**: Privileged container with `NET_ADMIN` and `SYS_ADMIN` capabilities
+- **Configuration**: Persistent configuration storage via named volume
+- **Management**: Requires setup key from Netbird management console
+- **Features**: Automatic peer discovery, health checks, TUN/TAP device access
+- **Container Name**: `${CONTAINER_NAME_PREFIX}-netbird`
+
 ## Quick Start
 
 1. **Create required networks**:
@@ -34,7 +46,8 @@ This docker-compose setup provides a Traefik reverse proxy that can be dynamical
    # Create external app networks
    docker network create media_center_apps
    docker network create immich-app-network
-   # traefik_network is created automatically by docker-compose
+   docker network create containers_bastion
+   # containers-ingress network is created automatically by docker-compose
    ```
 
 2. **Setup Environment**:
@@ -46,18 +59,27 @@ This docker-compose setup provides a Traefik reverse proxy that can be dynamical
    nano .env
    ```
 
-3. **Start the services**:
+3. **Configure Netbird** (optional, if using VPN):
+   ```bash
+   # Get your setup key from Netbird management console
+   # 1. Log into your Netbird management interface
+   # 2. Add a new peer and copy the setup key
+   # 3. Add the setup key to your .env file:
+   # NETBIRD_SETUP_KEY=your-setup-key-here
+   ```
+
+4. **Start the services**:
    ```bash
    docker-compose up -d
    ```
 
-4. **Connect Traefik to additional app networks** (optional):
+5. **Connect Traefik to additional app networks** (optional):
    ```bash
    # Connect Traefik to other app networks as needed
    docker network connect your_other_app_network ${CONTAINER_NAME_PREFIX}-traefik
    ```
 
-5. **Access Traefik Dashboard**:
+6. **Access Traefik Dashboard**:
    ```bash
    # Access via static IP (replace with your TRAEFIK_IP)
    open http://192.168.180.10:8080
@@ -81,7 +103,10 @@ The setup uses a comprehensive environment configuration system. Key variables i
 - `TRAEFIK_LOG_LEVEL`: Logging level (default: `INFO`)
 
 ### Network Configuration
-- App networks are external and must be created beforehand
+- External app networks must be created beforehand:
+  - `media_center_apps`: For media center services discovery by Traefik
+  - `immich-app-network`: For Immich services discovery by Traefik
+  - `containers_bastion`: For Netbird VPN client networking
 - Traefik runs on ipvlan network with static IP address on VLAN 180
 - Services must use `traefik.enable=true` label to be discovered
 - `TRAEFIK_IP` environment variable sets the static IP address
@@ -97,29 +122,35 @@ The setup uses a comprehensive environment configuration system. Key variables i
 - ACME certificates stored in persistent volume with custom mount point support
 - All other configuration is managed via command-line arguments
 
+### Netbird VPN Configuration
+- `NETBIRD_SETUP_KEY`: Setup key from Netbird management console (required)
+- `NETBIRD_HOSTNAME`: Optional custom hostname for this peer
+- `NETBIRD_LOG_LEVEL`: Logging level (debug, info, warn, error; default: info)
 
-
-
+**Note**: Netbird runs on the `containers_bastion` network, which must be created externally. This provides network isolation for VPN traffic separate from Traefik's service discovery networks.
 
 ## Network Configuration
 
 - **containers-ingress**: Dedicated ipvlan network for Traefik with direct VLAN 180 access
 - **media_center_apps**: External app network for media center services
 - **immich-app-network**: External app network for Immich services
+- **containers_bastion**: External app network for Netbird VPN client
 - **Additional App Networks**: Connect Traefik to more app networks dynamically as needed
 
 ### Network Separation Strategy
 - **VLAN Access**: Traefik gets its own IP address on VLAN 180 via ipvlan networking
 - **Direct Network Integration**: No port forwarding needed, Traefik has direct network presence
-- **Service Discovery**: App networks (like `media_center_apps`, `immich-app-network`) are where Traefik finds services to route
+- **Service Discovery**: App networks (`media_center_apps`, `immich-app-network`) are where Traefik finds services to route
+- **VPN Networking**: Netbird runs on dedicated `containers_bastion` network for isolated VPN connectivity
 - **Infrastructure Integration**: Traefik integrates directly with your VLAN infrastructure
 
 ### Prerequisites
-App networks must be created externally before starting Traefik:
+App networks must be created externally before starting services:
 ```bash
 # Create required app networks
 docker network create media_center_apps
 docker network create immich-app-network
+docker network create containers_bastion
 # Add other app networks as needed
 # Note: containers-ingress ipvlan network is created automatically by docker-compose
 ```
@@ -169,10 +200,16 @@ You have two options for API authentication:
    - **Account Resources:** `Include - All accounts`
 6. **Click "Continue to summary"** and **"Create Token"**
 7. **Copy the token** and use it as `CF_API_KEY` in your `.env` file
-8. **For custom tokens, use the token as both email and key** in your `.env`:
+8. **For custom tokens, you can use either approach:**
    ```bash
-   CF_API_EMAIL=token
+   # Option B1: Use token as API key (simpler)
+   CF_API_EMAIL=your-cloudflare-email@example.com
    CF_API_KEY=your-custom-token-here
+   
+   # Option B2: Use dedicated token variables (more secure)
+   # Leave CF_API_EMAIL and CF_API_KEY empty and add:
+   CF_DNS_API_TOKEN=your-custom-token-here
+   CF_ZONE_API_TOKEN=your-custom-token-here
    ```
 
 ### Step 3: Configure Environment Variables
@@ -366,8 +403,6 @@ services:
     networks:
       - media_center_apps  # Must be on same app network as Traefik
 ```
-
-
 
 ## Health Monitoring
 
