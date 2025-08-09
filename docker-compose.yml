@@ -31,7 +31,7 @@ services:
       - --api.insecure=false
       - --providers.docker=true
       - --providers.docker.exposedbydefault=false
-      - --providers.docker.network=proxy
+      - --providers.docker.network=traefik_public
       - --entrypoints.web.address=:80
       - --entrypoints.websecure.address=:443
       - --entrypoints.dashboard.address=:8080
@@ -48,9 +48,8 @@ services:
       - --certificatesresolvers.letsencrypt.acme.storage=/acme/acme.json
       - --certificatesresolvers.letsencrypt.acme.caserver=${ACME_CA_SERVER:-https://acme-v02.api.letsencrypt.org/directory}
     networks:
-      containers-ingress:
-        ipv4_address: ${TRAEFIK_IP}
-      proxy:
+      traefik_public:
+      docker_ingress_point_network:
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "traefik", "healthcheck", "--ping"]
@@ -64,51 +63,24 @@ services:
       - "traefik.http.routers.traefik-dashboard.entrypoints=dashboard"
       - "traefik.http.routers.traefik-dashboard.tls=${TRAEFIK_DASHBOARD_TLS:-false}"
       - "traefik.http.routers.traefik-dashboard.service=api@internal"
+    ports:
+      - "80:80"
+      - "443:443"
+      - "8080:8080"
+      
 
-  netbird:
-    container_name: "${CONTAINER_NAME_PREFIX}-netbird"
-    image: "netbird/netbird:latest"
-    environment:
-      - TZ=${TZ}
-      - NB_SETUP_KEY=${NETBIRD_SETUP_KEY:-}
-      - NB_HOSTNAME=${NETBIRD_HOSTNAME:-}
-      - NB_LOG_LEVEL=${NETBIRD_LOG_LEVEL:-info}
-    volumes:
-      - "netbird-data:/etc/netbird"
-    networks:
-      containers_bastion:
-    cap_add:
-      - NET_ADMIN
-      - SYS_ADMIN
-    devices:
-      - "/dev/net/tun:/dev/net/tun"
-    privileged: true
-    restart: unless-stopped
-
-    healthcheck:
-      test: ["CMD", "netbird", "status"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 30s
 
 networks:
-  # Traefik's ipvlan network for direct VLAN access
-  containers-ingress:
-    driver: ipvlan
-    driver_opts:
-      parent: ${INGRESS_PARENT_INTERFACE:-bond0.180}
-    ipam:
-      config:
-        - subnet: ${INGRESS_SUBNET}
-          gateway: ${INGRESS_GATEWAY}
-    name: containers-ingress
+  # External Traefik ingress network (shared across stacks)
+  traefik_public:
+    external: true
+    name: "traefik_public"
   
-  # App networks are external and must be created beforehand
-  proxy:
-    external: true
-  containers_bastion:
-    external: true
+  # Stack network with internet access (routing handled by host)
+  docker_ingress_point_network:
+    name: "${CONTAINER_NAME_PREFIX}_network"
+    driver: overlay
+    attachable: true
 
 volumes:
   # ACME certificate storage
@@ -119,8 +91,3 @@ volumes:
       type: ${ACME_VOLUME_TYPE:-}
       o: ${ACME_VOLUME_OPTIONS:-}
       device: ${CONFIG_BASE}/acme
-  
-  # Netbird configuration storage
-  netbird-data:
-    name: "${CONTAINER_NAME_PREFIX}-netbird-data"
-    driver: local
