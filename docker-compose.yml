@@ -12,7 +12,6 @@ version: "3.8"
 
 services:
   traefik:
-    container_name: "${CONTAINER_NAME_PREFIX}-traefik"
     image: "traefik:latest"
     entrypoint: ["/usr/local/bin/traefik"]
     environment:
@@ -30,6 +29,7 @@ services:
       - --api.dashboard=true
       - --api.insecure=false
       - --providers.docker=true
+      - --providers.docker.swarmMode=true
       - --providers.docker.exposedbydefault=false
       - --providers.docker.network=traefik_public
       - --entrypoints.web.address=:80
@@ -49,7 +49,15 @@ services:
       - --certificatesresolvers.letsencrypt.acme.caserver=${ACME_CA_SERVER:-https://acme-v02.api.letsencrypt.org/directory}
     networks:
       traefik_public:
-    restart: unless-stopped
+    deploy:
+      restart_policy:
+        condition: unless-stopped
+        delay: 5s
+        max_attempts: 3
+        window: 120s
+      placement:
+        constraints:
+          - node.role == manager
     healthcheck:
       test: ["CMD", "traefik", "healthcheck", "--ping"]
       interval: 30s
