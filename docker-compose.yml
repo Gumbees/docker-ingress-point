@@ -51,7 +51,7 @@ services:
       traefik_public:
     deploy:
       restart_policy:
-        condition: unless-stopped
+        condition: any
         delay: 5s
         max_attempts: 3
         window: 120s
