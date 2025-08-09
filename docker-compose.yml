@@ -32,6 +32,8 @@ services:
       - --providers.swarm.endpoint=unix:///var/run/docker.sock
       - --providers.swarm.exposedbydefault=false
       - --providers.swarm.network=traefik_public
+      - --ping=true
+      - --ping.entryPoint=dashboard
       - --entrypoints.web.address=:80
       - --entrypoints.websecure.address=:443
       - --entrypoints.dashboard.address=:8080
@@ -60,7 +62,7 @@ services:
           - node.role == manager
       labels:
         - "traefik.enable=true"
-        - "traefik.http.routers.traefik-dashboard.rule=Host(${TRAEFIK_DASHBOARD_HOST:-traefik.localhost})"
+        - "traefik.http.routers.traefik-dashboard.rule=Host(`${TRAEFIK_DASHBOARD_HOST:-traefik.localhost}`)"
         - "traefik.http.routers.traefik-dashboard.entrypoints=dashboard"
         - "traefik.http.routers.traefik-dashboard.tls=${TRAEFIK_DASHBOARD_TLS:-false}"
         - "traefik.http.routers.traefik-dashboard.service=api@internal"
