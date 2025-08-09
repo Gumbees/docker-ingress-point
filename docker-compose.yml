@@ -28,10 +28,10 @@ services:
     command:
       - --api.dashboard=true
       - --api.insecure=false
-      - --providers.docker=true
-      - --providers.docker.swarmMode=true
-      - --providers.docker.exposedbydefault=false
-      - --providers.docker.network=traefik_public
+      - --providers.swarm=true
+      - --providers.swarm.endpoint=unix:///var/run/docker.sock
+      - --providers.swarm.exposedbydefault=false
+      - --providers.swarm.network=traefik_public
       - --entrypoints.web.address=:80
       - --entrypoints.websecure.address=:443
       - --entrypoints.dashboard.address=:8080
