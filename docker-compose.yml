@@ -58,18 +58,18 @@ services:
       placement:
         constraints:
           - node.role == manager
+      labels:
+        - "traefik.enable=true"
+        - "traefik.http.routers.traefik-dashboard.rule=Host(${TRAEFIK_DASHBOARD_HOST:-traefik.localhost})"
+        - "traefik.http.routers.traefik-dashboard.entrypoints=dashboard"
+        - "traefik.http.routers.traefik-dashboard.tls=${TRAEFIK_DASHBOARD_TLS:-false}"
+        - "traefik.http.routers.traefik-dashboard.service=api@internal"
     healthcheck:
       test: ["CMD", "traefik", "healthcheck", "--ping"]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 30s
-    labels:
-      - "traefik.enable=true"
-      - "traefik.http.routers.traefik-dashboard.rule=Host(`${TRAEFIK_DASHBOARD_HOST:-traefik.localhost}`)"
-      - "traefik.http.routers.traefik-dashboard.entrypoints=dashboard"
-      - "traefik.http.routers.traefik-dashboard.tls=${TRAEFIK_DASHBOARD_TLS:-false}"
-      - "traefik.http.routers.traefik-dashboard.service=api@internal"
     ports:
       - "80:80"
       - "443:443"
