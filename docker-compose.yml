@@ -49,7 +49,6 @@ services:
       - --certificatesresolvers.letsencrypt.acme.caserver=${ACME_CA_SERVER:-https://acme-v02.api.letsencrypt.org/directory}
     networks:
       traefik_public:
-      docker_ingress_point_network:
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "traefik", "healthcheck", "--ping"]
@@ -76,11 +75,6 @@ networks:
     external: true
     name: "traefik_public"
   
-  # Stack network with internet access (routing handled by host)
-  docker_ingress_point_network:
-    name: "${CONTAINER_NAME_PREFIX}_network"
-    driver: overlay
-    attachable: true
 
 volumes:
   # ACME certificate storage
