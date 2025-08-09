@@ -66,6 +66,8 @@ services:
         - "traefik.http.routers.traefik-dashboard.entrypoints=dashboard"
         - "traefik.http.routers.traefik-dashboard.tls=${TRAEFIK_DASHBOARD_TLS:-false}"
         - "traefik.http.routers.traefik-dashboard.service=api@internal"
+        - "traefik.http.services.traefik.loadbalancer.server.port=8080"
+        - "traefik.http.services.docker-ingress-point-traefik.loadbalancer.server.port=8080"
     healthcheck:
       test: ["CMD", "traefik", "healthcheck", "--ping"]
       interval: 30s
