@@ -16,8 +16,12 @@ services:
   traefik:
     container_name: "${CONTAINER_NAME_PREFIX:-traefik}-ingress"
     image: "traefik:latest"
-    # Run in privileged mode for Docker socket access
-    privileged: true
+    entrypoint: ["/usr/local/bin/traefik"]
+    # Ensure container has proper permissions to access host Docker socket across different hosts
+    # - userns_mode: "host" avoids user namespace remapping issues
+    # - user: "0:0" ensures Traefik runs as root inside container
+    userns_mode: "host"
+    user: "0:0"
     environment:
       - TZ=${TZ:-America/New_York}
       # Cloudflare API credentials for DNS challenge
@@ -27,28 +31,30 @@ services:
       - CF_API_EMAIL=${CF_API_EMAIL:-}
       - CF_API_KEY=${CF_API_KEY:-}
     volumes:
-      # Docker socket access for container discovery
-      - "/var/run/docker.sock:/var/run/docker.sock:ro"
-      # Shared certificate storage
-      - "acme-certificates:/acme:rw"
+      # Add SELinux relabel (:z) for hosts with SELinux enforcing; harmless elsewhere
+      - "/var/run/docker.sock:/var/run/docker.sock:ro,z"
+      - "acme-certificates:/acme"
     command:
       # Enable dashboard and API
-      - "--api=true"
       - "--api.dashboard=true"
-      - "--api.insecure=true"  # Set to false in production for security
-      # Docker provider configuration
+      - "--api.insecure=${TRAEFIK_INSECURE_API:-false}"
+      # Docker provider configuration (for standalone Docker Compose)
       - "--providers.docker=true"
       - "--providers.docker.exposedbydefault=false"
-      - "--providers.docker.endpoint=tcp://100.101.14.75:2375"
+      - "--providers.docker.endpoint=unix:///var/run/docker.sock"
       - "--providers.docker.watch=true"
       - "--providers.docker.useBindPortIP=false"
+      # Swarm provider configuration (for Docker Swarm mode)
+      - "--providers.swarm=true"
+      - "--providers.swarm.exposedbydefault=false"
+      - "--providers.swarm.network=traefik_public"
       # Ping configuration
       - "--ping=true"
       - "--ping.entryPoint=dashboard"
       # Entry points
       - "--entrypoints.web.address=:80"
       - "--entrypoints.websecure.address=:443"
-      - "--entrypoints.dashboard.address=:8081"
+      - "--entrypoints.dashboard.address=:8080"
       # Global HTTP to HTTPS redirect
       - "--entrypoints.web.http.redirections.entrypoint.to=websecure"
       - "--entrypoints.web.http.redirections.entrypoint.scheme=https"
@@ -63,11 +69,11 @@ services:
       - "--certificatesresolvers.letsencrypt.acme.storage=/acme/acme.json"
       - "--certificatesresolvers.letsencrypt.acme.caserver=${ACME_CA_SERVER:-https://acme-v02.api.letsencrypt.org/directory}"
     networks:
-      - traefik-public
+      - traefik_public
     ports:
       - "80:80"
       - "443:443"
-      - "8081:8081"
+      - "8080:8080"
     restart: unless-stopped
     labels:
       - 'traefik.enable=true'
@@ -75,10 +81,17 @@ services:
       - "traefik.http.routers.dashboard.rule=Host(`${TRAEFIK_DASHBOARD_HOST:-traefik.localhost}`)"
       - "traefik.http.routers.dashboard.service=api@internal"
       - "traefik.http.routers.dashboard.entrypoints=dashboard"
+      - "traefik.http.routers.dashboard.tls=${TRAEFIK_DASHBOARD_TLS:-false}"
+    healthcheck:
+      test: ["CMD", "traefik", "healthcheck", "--ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
 
 networks:
   # Traefik public network for service discovery
-  traefik-public:
+  traefik_public:
     driver: bridge
     name: traefik_public
 
