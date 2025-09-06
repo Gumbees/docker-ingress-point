@@ -1,87 +1,93 @@
-# Docker Ingress Point - Traefik Configuration
+# Docker Ingress Point - Standalone Traefik Configuration
 # Environment variables are loaded from .env file by default
 # See README.md for detailed documentation
 #
 # This configuration provides:
-# - Traefik reverse proxy with HTTP/HTTPS access (80, 443, 8080)
+# - Traefik reverse proxy with HTTP/HTTPS access (80, 443, 8081)
 # - Automatic SSL certificates via Let's Encrypt with Cloudflare DNS challenge
-# - Dedicated ipvlan network with static IP on VLAN 180
+# - Docker provider for service discovery
 # - Multi-app network discovery and routing
+#
+# Deploy with: docker-compose up -d
 
 version: "3.8"
 
 services:
   traefik:
-    container_name: "${CONTAINER_NAME_PREFIX}-traefik"
+    container_name: "${CONTAINER_NAME_PREFIX:-traefik}-ingress"
     image: "traefik:latest"
-    entrypoint: ["/usr/local/bin/traefik"]
+    # Run in privileged mode for Docker socket access
+    privileged: true
     environment:
-      - TZ=${TZ}
+      - TZ=${TZ:-America/New_York}
       # Cloudflare API credentials for DNS challenge
-      - CF_API_EMAIL=${CF_API_EMAIL}
-      - CF_API_KEY=${CF_API_KEY}
+      # Method 1: API Token (recommended - more secure)
+      - CF_DNS_API_TOKEN=${CF_DNS_API_TOKEN:-}
+      # Method 2: Global API Key (fallback if API Token not provided)
+      - CF_API_EMAIL=${CF_API_EMAIL:-}
+      - CF_API_KEY=${CF_API_KEY:-}
     volumes:
+      # Docker socket access for container discovery
       - "/var/run/docker.sock:/var/run/docker.sock:ro"
-      - "acme-certificates:/acme"
+      # Shared certificate storage
+      - "acme-certificates:/acme:rw"
     command:
-      - --api.dashboard=true
-      - --api.insecure=false
-      - --providers.docker=true
-      - --providers.docker.exposedbydefault=false
-      - --entrypoints.web.address=:80
-      - --entrypoints.websecure.address=:443
-      - --entrypoints.dashboard.address=:8080
-      - --log.level=${TRAEFIK_LOG_LEVEL:-INFO}
-      - --accesslog=${TRAEFIK_ACCESS_LOG:-false}
+      # Enable dashboard and API
+      - "--api=true"
+      - "--api.dashboard=true"
+      - "--api.insecure=true"  # Set to false in production for security
+      # Docker provider configuration
+      - "--providers.docker=true"
+      - "--providers.docker.exposedbydefault=false"
+      - "--providers.docker.endpoint=tcp://100.101.14.75:2375"
+      - "--providers.docker.watch=true"
+      - "--providers.docker.useBindPortIP=false"
+      # Ping configuration
+      - "--ping=true"
+      - "--ping.entryPoint=dashboard"
+      # Entry points
+      - "--entrypoints.web.address=:80"
+      - "--entrypoints.websecure.address=:443"
+      - "--entrypoints.dashboard.address=:8081"
+      # Global HTTP to HTTPS redirect
+      - "--entrypoints.web.http.redirections.entrypoint.to=websecure"
+      - "--entrypoints.web.http.redirections.entrypoint.scheme=https"
+      - "--entrypoints.web.http.redirections.entrypoint.permanent=true"
+      # Logging
+      - "--log.level=${TRAEFIK_LOG_LEVEL:-INFO}"
+      - "--accesslog=${TRAEFIK_ACCESS_LOG:-false}"
       # ACME (Let's Encrypt) configuration
-      - --certificatesresolvers.letsencrypt.acme.dnschallenge=true
-      - --certificatesresolvers.letsencrypt.acme.dnschallenge.provider=cloudflare
-      - --certificatesresolvers.letsencrypt.acme.email=${ACME_EMAIL}
-      - --certificatesresolvers.letsencrypt.acme.storage=/acme/acme.json
-      - --certificatesresolvers.letsencrypt.acme.caserver=${ACME_CA_SERVER:-https://acme-v02.api.letsencrypt.org/directory}
+      - "--certificatesresolvers.letsencrypt.acme.dnschallenge=true"
+      - "--certificatesresolvers.letsencrypt.acme.dnschallenge.provider=cloudflare"
+      - "--certificatesresolvers.letsencrypt.acme.email=${ACME_EMAIL}"
+      - "--certificatesresolvers.letsencrypt.acme.storage=/acme/acme.json"
+      - "--certificatesresolvers.letsencrypt.acme.caserver=${ACME_CA_SERVER:-https://acme-v02.api.letsencrypt.org/directory}"
     networks:
-      containers-ingress:
-        ipv4_address: ${TRAEFIK_IP}
-      media_center_apps:
-      immich-app-network:
+      - traefik-public
+    ports:
+      - "80:80"
+      - "443:443"
+      - "8081:8081"
     restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "traefik", "healthcheck", "--ping"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 30s
     labels:
-      - "traefik.enable=true"
-      - "traefik.http.routers.traefik-dashboard.rule=Host(`${TRAEFIK_DASHBOARD_HOST:-traefik.localhost}`)"
-      - "traefik.http.routers.traefik-dashboard.entrypoints=dashboard"
-      - "traefik.http.routers.traefik-dashboard.tls=${TRAEFIK_DASHBOARD_TLS:-false}"
-      - "traefik.http.routers.traefik-dashboard.service=api@internal"
+      - 'traefik.enable=true'
+      # Dashboard configuration
+      - "traefik.http.routers.dashboard.rule=Host(`${TRAEFIK_DASHBOARD_HOST:-traefik.localhost}`)"
+      - "traefik.http.routers.dashboard.service=api@internal"
+      - "traefik.http.routers.dashboard.entrypoints=dashboard"
 
 networks:
-  # Traefik's ipvlan network for direct VLAN access
-  containers-ingress:
-    driver: ipvlan
-    driver_opts:
-      parent: ${INGRESS_PARENT_INTERFACE:-bond0.180}
-    ipam:
-      config:
-        - subnet: ${INGRESS_SUBNET}
-          gateway: ${INGRESS_GATEWAY}
-    name: containers-ingress
-  
-  # App networks are external and must be created beforehand
-  media_center_apps:
-    external: true
-  immich-app-network:
-    external: true
+  # Traefik public network for service discovery
+  traefik-public:
+    driver: bridge
+    name: traefik_public
 
 volumes:
   # ACME certificate storage
   acme-certificates:
-    name: "${CONTAINER_NAME_PREFIX}-acme-certificates"
+    name: "${CONTAINER_NAME_PREFIX:-traefik}-acme-certificates"
     driver: local
     driver_opts:
       type: ${ACME_VOLUME_TYPE:-}
       o: ${ACME_VOLUME_OPTIONS:-}
-      device: ${CONFIG_BASE}/acme
+      device: ${CONFIG_BASE:-/data/traefik}/acme
