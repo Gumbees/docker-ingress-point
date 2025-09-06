@@ -54,7 +54,7 @@ services:
       # Entry points
       - "--entrypoints.web.address=:80"
       - "--entrypoints.websecure.address=:443"
-      - "--entrypoints.dashboard.address=:8080"
+      - "--entrypoints.dashboard.address=:8081"
       # Global HTTP to HTTPS redirect
       - "--entrypoints.web.http.redirections.entrypoint.to=websecure"
       - "--entrypoints.web.http.redirections.entrypoint.scheme=https"
