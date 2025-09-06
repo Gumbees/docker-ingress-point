@@ -5,7 +5,7 @@
 # This configuration provides:
 # - Traefik reverse proxy with HTTP/HTTPS access (80, 443, 8081)
 # - Automatic SSL certificates via Let's Encrypt with Cloudflare DNS challenge
-# - Docker provider for service discovery
+# - Docker provider for service discovery (standalone Docker only)
 # - Multi-app network discovery and routing
 #
 # Deploy with: docker-compose up -d
@@ -44,10 +44,6 @@ services:
       - "--providers.docker.endpoint=unix:///var/run/docker.sock"
       - "--providers.docker.watch=true"
       - "--providers.docker.useBindPortIP=false"
-      # Swarm provider configuration (for Docker Swarm mode)
-      - "--providers.swarm=true"
-      - "--providers.swarm.exposedbydefault=false"
-      - "--providers.swarm.network=traefik_public"
       # Ping configuration
       - "--ping=true"
       - "--ping.entryPoint=dashboard"
